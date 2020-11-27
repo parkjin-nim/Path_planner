@@ -76,17 +76,22 @@ the path has processed since last time.
 
 2. There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long maybe just 1-3 time steps. During this delay the simulator will continue using points that it was last given, because of this its a good idea to store the last points you have used so you can have a smooth transition. previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator controller with the processed points already removed. You would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
 
-**3. Behavior planner block implementation:** The objective is to suggest an appropriate maneuver in time, such as target lane, target vehicle to follow, target speed, time to reach targets, etc., General steps are as following.
+**3. Behavior planner block implementation:** 
+
+The objective is to suggest an appropriate maneuver in time, such as target lane, target vehicle to follow, target speed, time to reach targets, etc., General steps are as following.
     
    - **predictions on vehicles around**
     Simulator provided sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions were made on near-by cars' s coord. in the future.
+    
     ```
     car_s = end_path_s; //my car s coord. in the future horizon.
     :
     check_car_s += ((double)prev_size*.02*check_speed); 
     ```
+    
    - **checking sucessor states**
     A simple finite state machine(FSM) was used(state 0:keep lane, 1:change lane left, 2:change lane right). Keep lane state changed to Lane Change Left(LCL) or Lane Change Right(LCR) if ego car found a better cost lane. And LCL/LCR state went back to KL only when ego car arrived at the new lane.
+    
     ```
     if(state == 0){
         if(too_close){
@@ -98,8 +103,10 @@ the path has processed since last time.
         }
     }
     ```
+    
    - **generating trajectories**
    Time to collision(TTC) was calculated for each possible trajectory based on the current position. And only non-collision trajectories survive. TTC is distance delta divided by relative speed delta. To get the minimum decceleration, relative speed divided by n moves is subtracted. n is calculated by dividing TTC by simulation cycle 0.02 second. In simulation test, calculating TTC and decceleration by n points helped the max. acceleration/decceleration exceeding problems.  
+   
     ```
     double ttc = (check_car_s0 - car_s0)/abs(check_speed - car_speed);
     double ltc = ttc*car_speed;
@@ -109,8 +116,10 @@ the path has processed since last time.
         ref_vel -= (ref_vel-check_speed*2.24)/n ;
     }
     ```
+    
    - **evaluating each trajectory with cost function**
     Each non ego vehicles in a lane has a different speed, so to get the speed limit for a lane, i used the avg. of vehicles in that lane. Although that lane may be slow, ego car can take a chance to select it if there's vast space ahead(emptyahead cost). Therefore, the cost is avg. lane speed plus amount of space ahead in the neighbor lanes. This cost function allowed travel time to the goal to be shorter. The weight ratio of 1:3 worked quite well in that ego vehicle achieved shorter travel time and made a sharp lane change when another car suddenly cut in the lane.
+    
     ```
     for (int k=0; k<3; k++){
     if(waycount[k] != 0){
@@ -120,8 +129,10 @@ the path has processed since last time.
         freeway[k] = (49.5-freeway[k])/49.5 + 3*exp(-(emptyahead[k]));
     }
     ```
-    - **enforcing optimal cost trajectory**
+    
+   - **enforcing optimal cost trajectory**
     The least cost trjectory was monitored, and a lane change was executed when possible and safe. If a car in my lane was predicted to be less than 30m ahead, the car was deemed to be too close and not safe. If a car in my left was predicted within 20m, lane change was deemed not safe. 
+    
     ```c++
     vector<double>::iterator best_cost = min_element(freeway.begin(), freeway.end());
     int best_lane = distance(freeway.begin(), best_cost);
@@ -139,7 +150,9 @@ the path has processed since last time.
         }
     }
     ```
+    
    The log below shows that the ego car waited until LCR became safe. Then the optimal lane changed to the lane 2. And then the ego car executed LCR again with little wait this time.
+   
     ```
     c0:3.98754 c1:0.987319 c2:3.98688
     c0:3.98754 c1:0.987334 c2:3.98689
@@ -165,10 +178,14 @@ the path has processed since last time.
     [to the left]1
     ```
  
-**4. Trajectory planner block implemenation:** The objective is to create a path that smoothly changes lanes. Namely, the path is made up of (x,y) points that the car will visit sequentially every .02 seconds. General rule of trajectory planner is to keep safe distance from other near-by cars and the comfort of low acc./jerk. Conditions given by simulator were, simulator cycle 1 move / 0.02 sec and horizon 50 move(1 sec). Therefore, when my speed was 50mph(25m/ sec), each move was around 0.5m long.
+**4. Trajectory planner block implemenation:** 
+
+The objective is to create a path that smoothly changes lanes. Namely, the path is made up of (x,y) points that the car will visit sequentially every .02 seconds. General rule of trajectory planner is to keep safe distance from other near-by cars and the comfort of low acc./jerk. Conditions given by simulator were, simulator cycle 1 move / 0.02 sec and horizon 50 move(1 sec). Therefore, when my speed was 50mph(25m/ sec), each move was around 0.5m long.
        
    - **cubic spline interpolation**
+   
    A spline was generate by the cubic spline interpolation function in [spline.h](https://kluge.in-chemnitz.de/opensource/spline/). In Frenet coord., evenly 30m spaced points were added ahead of the starting reference. These 3 points were anchor points to create interpolated spline points. Those points were transformed to x,y coord using getXY function.
+
     ```
     vector<double> next_wp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
     vector<double> next_wp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
@@ -184,8 +201,11 @@ the path has processed since last time.
     tk::spline s;
     s.set_points(ptsx,ptsy);
     ```
+    
    - **seamless smooth trajectory**
+   
    On every websocket message arrival, the simulator returned the path points that were not consumed yet to my C++ program. So, for seamless and smooth trajectory generation, the previous path's end points were used as starting reference. Leaving all of the previous path points from last time, new path points were added on top of them, in order to make 1 sec long trajectory(50 moves). Then spline points were broken up such that we traveled at our desired reference velocity. N points were spaced along the spline at the desired speed. N = d /(.02 * vel) because v = d/t. where t is N * .02. 
+   
 ```
     double target_x = 30.0;
     double target_y = s(target_x);
@@ -199,7 +219,6 @@ the path has processed since last time.
         double y_point = s(x_point);
         :
 ```
-
 ---
 
 ## Dependencies
