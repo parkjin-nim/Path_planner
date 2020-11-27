@@ -81,18 +81,20 @@ the path has processed since last time.
 The objective is to suggest an appropriate maneuver in time, such as target lane, target vehicle to follow, target speed, time to reach targets, etc., General steps are as following.
     
    - **predictions on vehicles around**
-    Simulator provided sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions were made on near-by cars' s coord. in the future.
+   
+   The simulator provided sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions were made not only on ego car's s coordinate but also on near-by cars' s coordinate in the future.
     
-    ```
-    car_s = end_path_s; //my car s coord. in the future horizon.
+```
+    car_s = end_path_s; 
     :
     check_car_s += ((double)prev_size*.02*check_speed); 
-    ```
+```
     
    - **checking sucessor states**
-    A simple finite state machine(FSM) was used(state 0:keep lane, 1:change lane left, 2:change lane right). Keep lane state changed to Lane Change Left(LCL) or Lane Change Right(LCR) if ego car found a better cost lane. And LCL/LCR state went back to KL only when ego car arrived at the new lane.
+   
+   A simple finite state machine(FSM) was used(state 0:keep lane, 1:change lane left, 2:change lane right). Keep lane state changed to Lane Change Left(LCL) or Lane Change Right(LCR) if the ego car found a safe and efficient lane. And LCL/LCR state went back to KL only when ego car arrived at the new target lane.
     
-    ```
+```
     if(state == 0){
         if(too_close){
           :
@@ -102,12 +104,13 @@ The objective is to suggest an appropriate maneuver in time, such as target lane
           state = 0;
         }
     }
-    ```
+```
     
    - **generating trajectories**
-   Time to collision(TTC) was calculated for each possible trajectory based on the current position. And only non-collision trajectories survive. TTC is distance delta divided by relative speed delta. To get the minimum decceleration, relative speed divided by n moves is subtracted. n is calculated by dividing TTC by simulation cycle 0.02 second. In simulation test, calculating TTC and decceleration by n points helped the max. acceleration/decceleration exceeding problems.  
    
-    ```
+   Time to collision(TTC) was calculated for each possible trajectory based on the current positions. And only non-collision trajectories survived. TTC is distance delta divided by relative speed delta. To get the minimum decceleration, relative speed divided by n moves was subtracted from relative speed delta. n was calculated by dividing TTC by simulation cycle 0.02 second. In simulation test, calculating TTC and decceleration by n points helped remove the max. acceleration/decceleration exceeding problems.  
+   
+```
     double ttc = (check_car_s0 - car_s0)/abs(check_speed - car_speed);
     double ltc = ttc*car_speed;
     double n = ttc/.02; //n points move
@@ -115,12 +118,13 @@ The objective is to suggest an appropriate maneuver in time, such as target lane
     if (ref_vel > check_speed*2.24){
         ref_vel -= (ref_vel-check_speed*2.24)/n ;
     }
-    ```
+```
     
    - **evaluating each trajectory with cost function**
-    Each non ego vehicles in a lane has a different speed, so to get the speed limit for a lane, i used the avg. of vehicles in that lane. Although that lane may be slow, ego car can take a chance to select it if there's vast space ahead(emptyahead cost). Therefore, the cost is avg. lane speed plus amount of space ahead in the neighbor lanes. This cost function allowed travel time to the goal to be shorter. The weight ratio of 1:3 worked quite well in that ego vehicle achieved shorter travel time and made a sharp lane change when another car suddenly cut in the lane.
+   
+    Each non ego vehicles in a lane has a different speed, so to get the speed limit for a lane, i used the avg. of vehicles in that lane. Although that lane was slow, ego car could take a chance to select it if there was vast space ahead(low emptyahead cost). Therefore, the cost was avg. lane speed plus amount of space ahead in the neighbor lanes. This cost function allowed travel time to the goal to be shorter. The weight ratio of 1:3 worked quite well, in that ego vehicle achieved shorter travel time and was able to make a sharp lane change when another car suddenly cut in the lane.
     
-    ```
+```
     for (int k=0; k<3; k++){
     if(waycount[k] != 0){
         freeway[k] /= waycount[k];
@@ -128,12 +132,13 @@ The objective is to suggest an appropriate maneuver in time, such as target lane
         :
         freeway[k] = (49.5-freeway[k])/49.5 + 3*exp(-(emptyahead[k]));
     }
-    ```
+```
     
    - **enforcing optimal cost trajectory**
-    The least cost trjectory was monitored, and a lane change was executed when possible and safe. If a car in my lane was predicted to be less than 30m ahead, the car was deemed to be too close and not safe. If a car in my left was predicted within 20m, lane change was deemed not safe. 
+   
+   The least cost trjectory was monitored, and a lane change was executed whenever possible and safe. If a car in my lane was predicted to be less than 30m ahead in the future, the situation was deemed to be too close. If a car in my left was predicted within 20m in the future, lane change was deemed to be unsafe. 
     
-    ```c++
+```
     vector<double>::iterator best_cost = min_element(freeway.begin(), freeway.end());
     int best_lane = distance(freeway.begin(), best_cost);
     if(best_lane != lane)
@@ -149,11 +154,11 @@ The objective is to suggest an appropriate maneuver in time, such as target lane
             state = 2;
         }
     }
-    ```
+```
     
-   The log below shows that the ego car waited until LCR became safe. Then the optimal lane changed to the lane 2. And then the ego car executed LCR again with little wait this time.
+   The log below shows that the ego car waited changing to the optimal lane, until LCR became safe. Then the optimal lane changed to the lane 2 again. And this time the ego car executed LCR again with little wait.
    
-    ```
+```
     c0:3.98754 c1:0.987319 c2:3.98688
     c0:3.98754 c1:0.987334 c2:3.98689
     c0:3.98754 c1:0.987348 c2:3.9869
@@ -176,7 +181,7 @@ The objective is to suggest an appropriate maneuver in time, such as target lane
     [to the right]2
     c0:3.98765 c1:3.98679 c2:3.98684
     [to the left]1
-    ```
+```
  
 **4. Trajectory planner block implemenation:** 
 
@@ -184,9 +189,9 @@ The objective is to create a path that smoothly changes lanes. Namely, the path 
        
    - **cubic spline interpolation**
    
-   A spline was generate by the cubic spline interpolation function in [spline.h](https://kluge.in-chemnitz.de/opensource/spline/). In Frenet coord., evenly 30m spaced points were added ahead of the starting reference. These 3 points were anchor points to create interpolated spline points. Those points were transformed to x,y coord using getXY function.
+   A spline was generated by the cubic spline interpolation function in [spline.h](https://kluge.in-chemnitz.de/opensource/spline/). In Frenet coord., evenly 30m spaced points were added ahead of the starting reference. These 3 points played the role of anchor points to create interpolated spline points. Those points were first transformed to x,y coord using getXY function.
 
-    ```
+```
     vector<double> next_wp0 = getXY(car_s+30, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
     vector<double> next_wp1 = getXY(car_s+60, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
     vector<double> next_wp2 = getXY(car_s+90, (2+4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
@@ -200,11 +205,11 @@ The objective is to create a path that smoothly changes lanes. Namely, the path 
     :
     tk::spline s;
     s.set_points(ptsx,ptsy);
-    ```
+```
     
    - **seamless smooth trajectory**
    
-   On every websocket message arrival, the simulator returned the path points that were not consumed yet to my C++ program. So, for seamless and smooth trajectory generation, the previous path's end points were used as starting reference. Leaving all of the previous path points from last time, new path points were added on top of them, in order to make 1 sec long trajectory(50 moves). Then spline points were broken up such that we traveled at our desired reference velocity. N points were spaced along the spline at the desired speed. N = d /(.02 * vel) because v = d/t. where t is N * .02. 
+   On every websocket message arrival, the simulator returned the path points, which were not yet consumed, to my C++ program. So, for seamless and smooth trajectory generation, the previous path's end points had to be used as starting reference. Leaving all of the previous path points from last time, new path points were added ahead of them, in order to make 1 sec long trajectory(50 moves). Then spline points were broken up such that we traveled at our desired reference velocity. N points were spaced along the spline at the desired speed. N = d /(.02 * vel) because v = d/t. where t is N * .02. 
    
 ```
     double target_x = 30.0;
