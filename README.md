@@ -1,5 +1,5 @@
 
-# **Motion-Planning-Project**
+# **Path-Planning-Project**
 
 [//]: # (Image References)
 
@@ -84,7 +84,7 @@ Furthermore, we want to make sure that the maximum cost of this cost function ne
 ![alt text][image4]
 
 
-## Path planner
+## Local planner
 
 #### Compute scheduling
 
