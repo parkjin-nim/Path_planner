@@ -72,8 +72,6 @@ def transition_function(predictions, current_fsm_state, current_pose, cost_funct
 
 Behavior planner gets inputs from multiple sources to plan its path. The simulator provides sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions are made not only on ego car's s coordinate but also on near-by cars' s coordinate in the future.
 
-![alt text][image2]
-
 #### Speed panelty
 
 ![alt text][image3]
