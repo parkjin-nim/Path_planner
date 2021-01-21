@@ -1,193 +1,103 @@
 
-# **Path-Planning-Project**
+# **Motion-Planning-Project**
 
 [//]: # (Image References)
 
 [image1]: ./data/simulation_for20min.png "simulation for 20 minutes"
-
-
+[image2]: ./data/input_output.png "behavior function inputs/outputs"
+[image3]: ./data/speed.png "speed penaly"
+[image4]: ./data/lane_change.png "lane change penaly"
+[image5]: ./data/compute_time.png "timing schedule"
 ---
 
 ![alt text][image1]
 
 ---
 
-### Simulator.
-This project is a part of Self-Driving Car Engineer Nanodegree Program. You can download the simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases/tag/T3_v1.2).  
+## Goals
 
-To run the simulator on Mac/Linux, first make the binary file executable with the following command:
-```shell
-sudo chmod u+x {simulator_file_name}
-```
+In this project the goal is to implement a motion planner(FSM behavior planner + Path planner) that safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. The planner is provided the car's localization and sensor fusion data and there are also a sparse map list of waypoints around the highway. The car tries to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible and other cars will try to change lanes too. The car avoids hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car is able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 10 m/s^3.
 
-### Goals
-In this project the goal is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit. You will be provided the car's localization and sensor fusion data, there is also a sparse map list of waypoints around the highway. The car should try to go as close as possible to the 50 MPH speed limit, which means passing slower traffic when possible, note that other cars will try to change lanes too. The car should avoid hitting other cars at all cost as well as driving inside of the marked road lanes at all times, unless going from one lane to another. The car should be able to make one complete loop around the 6946m highway. Since the car is trying to go 50 MPH, it should take a little over 5 minutes to complete 1 loop. Also the car should not experience total acceleration over 10 m/s^2 and jerk that is greater than 10 m/s^3.
 
-#### The map of the highway is in data/highway_map.txt
-Each waypoint in the list contains  [x,y,s,dx,dy] values. x and y are the waypoint's map coordinate position, the s value is the distance along the road to get to that waypoint in meters, the dx and dy values define the unit normal vector pointing outward of the highway loop.
+## Behavior planner
 
-The highway's waypoints loop around so the frenet s value, distance along the road, goes from 0 to 6945.554.
+The objective is to suggest an appropriate maneuver in time, such as target lane, target vehicle to follow, target speed, time to reach targets, etc., 
 
-## Basic Build Instructions
-
-1. Clone this repo.
-2. Make a build directory: `mkdir build && cd build`
-3. Compile: `cmake .. && make`
-4. Run it: `./path_planning`.
-
-Here is the data provided from the Simulator to the C++ Program
-
-#### Main car's localization Data (No Noise)
-
-["x"] The car's x position in map coordinates
-
-["y"] The car's y position in map coordinates
-
-["s"] The car's s position in frenet coordinates
-
-["d"] The car's d position in frenet coordinates
-
-["yaw"] The car's yaw angle in the map
-
-["speed"] The car's speed in MPH
-
-#### Previous path data given to the Planner
-
-//Note: Return the previous list but with processed points removed, can be a nice tool to show how far along
-the path has processed since last time. 
-
-["previous_path_x"] The previous list of x points previously given to the simulator
-
-["previous_path_y"] The previous list of y points previously given to the simulator
-
-#### Previous path's end s and d values 
-
-["end_path_s"] The previous list's last point's frenet s value
-
-["end_path_d"] The previous list's last point's frenet d value
-
-#### Sensor Fusion Data, a list of all other car's attributes on the same side of the road. (No Noise)
-
-["sensor_fusion"] A 2d vector of cars and then that car's [car's unique ID, car's x position in map coordinates, car's y position in map coordinates, car's x velocity in m/s, car's y velocity in m/s, car's s position in frenet coordinates, car's d position in frenet coordinates. 
-
-## Details
-
-1. The car uses a perfect controller and will visit every (x,y) point it recieves in the list every .02 seconds. The units for the (x,y) points are in meters and the spacing of the points determines the speed of the car. The vector going from a point to the next point in the list dictates the angle of the car. Acceleration both in the tangential and normal directions is measured along with the jerk, the rate of change of total Acceleration. The (x,y) point paths that the planner recieves should not have a total acceleration that goes over 10 m/s^2, also the jerk should not go over 50 m/s^3. (NOTE: As this is BETA, these requirements might change. Also currently jerk is over a .02 second interval, it would probably be better to average total acceleration over 1 second and measure jerk from that.
-
-2. There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long maybe just 1-3 time steps. During this delay the simulator will continue using points that it was last given, because of this its a good idea to store the last points you have used so you can have a smooth transition. previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator controller with the processed points already removed. You would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
-
-**3. Behavior planner block implementation:** 
-
-The objective is to suggest an appropriate maneuver in time, such as target lane, target vehicle to follow, target speed, time to reach targets, etc., General steps are as follow.
+* Lane Keep
+    - d: Stay near center line for lane
+    - s: Drive at target speed when feasible, othewise drive at whatever speed is safest for the lane
+* Lane Change Left/Right
+    - d: Move left or right
+    - s: Drive at target speed when feasible, othewise drive at whatever speed is safest for the lane
+* Prepare Lane Change Left/Right
+    - d: Stay near center line for lane
+    - s: Attempt to match position and speed of "gap" in lane
     
-   - **predictions on vehicles around**
-   
-The simulator provided sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions were made not only on ego car's s coordinate but also on near-by cars' s coordinate in the future.
+#### State transition function
+
+In the sate transition function, we first consider states that can be reached from current FSM state to keep track of the total cost of each state. For the cost, we first generate a rough idea of what trajectory we would follow if we chose this state and calculate the "cost" associated with that trajectory. We apply each cost function to the generated trajectory and multiply the cost by the associated weight to find the minimum cost state. The least cost trjectory is monitored, and a lane change is executed whenever possible and safe.
+
+```
+def transition_function(predictions, current_fsm_state, current_pose, cost_functions, weights):
+
+    possible_successor_states = successor_states(current_fsm_state)
     
+    costs = []
+    for state in possible_successor_states:
+        
+        trajectory_for_state = generate_trajectory(state, current_pose, predictions)
+
+        cost_for_state = 0
+        for i in range(len(cost_functions)) :
+            
+            cost_function = cost_functions[i]
+            cost_for_cost_function = cost_function(trajectory_for_state, predictions)
+
+            weight = weights[i]
+            cost_for_state += weight * cost_for_cost_function
+         costs.append({'state' : state, 'cost' : cost_for_state})
+
+    best_next_state = None
+    min_cost = 9999999
+    for i in range(len(possible_successor_states)):
+        state = possible_successor_states[i]
+        cost  = costs[i]
+        if cost < min_cost:
+            min_cost = cost
+            best_next_state = state 
+
+    return best_next_state
 ```
-    car_s = end_path_s; 
-    :
-    check_car_s += ((double)prev_size*.02*check_speed); 
-```
-    
-   - **checking sucessor states**
-   
-A simple finite state machine(FSM) was used(state 0:keep lane, 1:change lane left, 2:change lane right). Keep lane state changed to Lane Change Left(LCL) or Lane Change Right(LCR) if the ego car found a safe and efficient lane. And LCL/LCR state went back to KL only when ego car arrived at the new target lane.
-    
-```
-    if(state == 0){
-        if(too_close){
-          :
-        }
-    else if(state == 1){
-        if(getlane(car_d) == lane){
-          state = 0;
-        }
-    }
-```
-    
-   - **generating trajectories**
-   
-Time to collision(TTC) was calculated for each possible trajectory based on the current positions. And only non-collision trajectories survived. TTC is distance delta divided by relative speed delta. To get the minimum decceleration, relative speed divided by n moves was subtracted from relative speed delta. n was calculated by dividing TTC by simulation cycle 0.02 second. In simulation test, calculating TTC and decceleration by n points helped remove the max. acceleration/decceleration exceeding problems.  
-   
-```
-    double ttc = (check_car_s0 - car_s0)/abs(check_speed - car_speed);
-    double ltc = ttc*car_speed;
-    double n = ttc/.02; //n points move
-    :
-    if (ref_vel > check_speed*2.24){
-        ref_vel -= (ref_vel-check_speed*2.24)/n ;
-    }
-```
-    
-   - **evaluating each trajectory with cost function**
-   
-Each non ego vehicles in a lane has a different speed, so to get the speed limit for a lane, i used the avg. of vehicles in that lane. Although that lane was slow, ego car could take a chance to select it if there was vast space ahead(low emptyahead cost). Therefore, the cost was avg. lane speed plus amount of space ahead in the neighbor lanes. This cost function allowed travel time to the goal to be shorter. The weight ratio of 1:3 worked quite well, in that ego vehicle achieved shorter travel time and was able to make a sharp lane change when another car suddenly cut in the lane.
-    
-```
-    for (int k=0; k<3; k++){
-    if(waycount[k] != 0){
-        freeway[k] /= waycount[k];
-        freeway[k] = (49.5-freeway[k])/49.5;
-        :
-        freeway[k] = (49.5-freeway[k])/49.5 + 3*exp(-(emptyahead[k]));
-    }
-```
-    
-   - **enforcing optimal cost trajectory**
-   
-The least cost trjectory was monitored, and a lane change was executed whenever possible and safe. If a car in my lane was predicted to be less than 30m ahead in the future, the situation was deemed to be too close. If a car in my left was predicted within 20m in the future, lane change was deemed to be unsafe. 
-    
-```
-    vector<double>::iterator best_cost = min_element(freeway.begin(), freeway.end());
-    int best_lane = distance(freeway.begin(), best_cost);
-    if(best_lane != lane)
-    {
-        if(left_safe && lane > 0 && lane-1 == best_lane){
-            lane -=1;
-            std::cout<<"[to the left]"<< lane << std::endl;
-            state = 1;
-        }
-        else if(right_safe && lane < 3 && lane+1 == best_lane){
-            lane +=1;
-            std::cout<<"[to the right]"<< lane << std::endl;
-            state = 2;
-        }
-    }
-```
-    
-The log below shows that the ego car waited changing to the optimal lane, until LCR became safe. Then the optimal lane changed to the lane 2 again. And this time the ego car executed LCR again with little wait.
-   
-```
-    c0:3.98754 c1:0.987319 c2:3.98688
-    c0:3.98754 c1:0.987334 c2:3.98689
-    c0:3.98754 c1:0.987348 c2:3.9869
-    c0:3.98754 c1:0.987361 c2:3.98691
-    c0:3.98754 c1:0.98737 c2:3.98691
-    c0:3.98754 c1:0.987382 c2:3.98692
-    c0:3.98754 c1:0.987398 c2:3.98694
-    c0:3.98754 c1:0.987406 c2:3.98694
-    c0:3.98754 c1:0.987417 c2:3.98695
-    c0:3.98754 c1:0.987428 c2:3.98696
-    c0:3.98754 c1:0.987439 c2:3.98697
-    c0:3.98754 c1:0.987449 c2:3.98697
-    c0:3.98754 c1:0.987462 c2:3.98698
-    c0:3.98754 c1:0.987469 c2:3.98699
-    c0:3.98754 c1:0.987478 c2:3.987
-    c0:3.98754 c1:0.987484 c2:3.987
-    c0:3.98754 c1:0.987496 c2:3.98693
-    [to the right]1
-    c0:3.98771 c1:3.98706 c2:0.986769
-    [to the right]2
-    c0:3.98765 c1:3.98679 c2:3.98684
-    [to the left]1
-```
- 
-**4. Trajectory planner block implemenation:** 
+
+### Cost functions
+
+Behavior planner gets inputs from multiple sources to plan its path. The simulator provides sensor fusion data for each near-by car[id,x,y,vx,vy,s,d]. Predictions are made not only on ego car's s coordinate but also on near-by cars' s coordinate in the future.
+
+![alt text][image2]
+
+#### Speed panelty
+
+![alt text][image3]
+
+#### Lane change panelty
+
+We want a cost function that penalizes large |\Delta d|∣Δd∣ and we want that penalty to be bigger when \Delta sΔs is small.
+Furthermore, we want to make sure that the maximum cost of this cost function never exceeds one and that the minimum never goes below zero. The cost increases with both the distance of intended lane from the goal and the distance of the final lane from the goal. The cost of being out of the goal lane also becomes larger as the vehicle approaches the goal.
+
+![alt text][image4]
+
+
+## Path planner
+
+#### Compute scheduling
 
 The objective is to create a path that smoothly changes lanes. Namely, the path is made up of (x,y) points that the car will visit sequentially every .02 seconds. General rule of trajectory planner is to keep safe distance from other near-by cars and the comfort of low acc./jerk. Conditions given by simulator were, simulator cycle 1 move / 0.02 sec and horizon 50 move(1 sec). Therefore, when my speed was 50mph(25m/ sec), each move was around 0.5m long.
-       
-   - **cubic spline interpolation**
+
+There will be some latency between the simulator running and the path planner returning a path, with optimized code usually its not very long(1-3 time steps). During this delay, the simulator will continue using points that it was last given. Because of this, its a good idea to store the last points we have used so we can have a smooth transition. Previous_path_x, and previous_path_y can be helpful for this transition since they show the last points given to the simulator. We would either return a path that extends this previous path or make sure to create a new path that has a smooth transition with this last path.
+
+![alt text][image5]
+
+#### Cubic spline interpolation
    
 A spline was generated by the cubic spline interpolation function in [spline.h](https://kluge.in-chemnitz.de/opensource/spline/). In Frenet coord., evenly 30m spaced points were added ahead of the starting reference. These 3 points played the role of anchor points to create interpolated spline points. Those points were first transformed to x,y coord using getXY function.
 
@@ -207,9 +117,9 @@ A spline was generated by the cubic spline interpolation function in [spline.h](
     s.set_points(ptsx,ptsy);
 ```
     
-   - **seamless smooth trajectory**
-   
-On every websocket message arrival, the simulator returned the path points, which were not yet consumed, to my C++ program. So, for seamless and smooth trajectory generation, the previous path's end points had to be used as starting reference. Leaving all of the previous path points from last time, new path points were added ahead of them, in order to make 1 sec long trajectory(50 moves). Then spline points were broken up such that we traveled at our desired reference velocity. N points were spaced along the spline at the desired speed. N = d /(.02 * vel) because v = d/t. where t is N * .02. 
+#### Trajectory generation
+
+On every websocket message arrival in the C++ program, there are the path points returned, which are not yet consumed by the simulator. So, for smooth trajectory generation, the previous path's end points had to be used as starting reference. Leaving all of the previous path points from last time, new path points were added ahead of them, in order to make 1 sec long trajectory(50 moves). Then spline points are broken up such that we travel at our desired reference velocity. N points are spaced along the spline at the desired speed. N = d /(.02 * vel) because v = d/t. where t is N * .02. 
    
 ```
     double target_x = 30.0;
@@ -224,7 +134,81 @@ On every websocket message arrival, the simulator returned the path points, whic
         double y_point = s(x_point);
         :
 ```
+
+#### Deccelerations
+
+(x,y) points are in meters and the spacing inbetween determines the speed of the car. The vector from a point to the next dictates the angle of the car. Acceleration both in the tangential and normal directions is measured along with the jerk, the rate of change of total acceleration. (x,y) points in a path should not have a total acceleration that goes over 10 m/s^2. The jerk also should not go over 50 m/s^3. Note that these requirements might change for BETA version simulator. For instance, jerk is measured over a .02 second interval and is the average total acceleration over 1 second.
+
+Time to collision(TTC) is calculated for each possible trajectory based on the current positions. And only non-collision trajectories survive. TTC is distance delta divided by relative speed delta. To get the minimum decceleration, relative speed divided by n moves is subtracted from relative speed delta. n is calculated by dividing TTC by simulation cycle 0.02 second. In simulation test, calculating TTC and decceleration by n points help avoid passing the maximum acceleration/decceleration.  
+   
+```
+    double ttc = (check_car_s0 - car_s0)/abs(check_speed - car_speed);
+    double ltc = ttc*car_speed;
+    double n = ttc/.02; //n points move
+    :
+    if (ref_vel > check_speed*2.24){
+        ref_vel -= (ref_vel-check_speed*2.24)/n ;
+    }
+```
 ---
+
+## Simulator
+
+This project is a part of Self-Driving Car Engineer Nanodegree Program. You can download the simulator which contains the Path Planning Project from the [releases tab (https://github.com/udacity/self-driving-car-sim/releases/tag/T3_v1.2).  
+
+To run the simulator on Mac/Linux, first make the binary file executable with the following command:
+```shell
+sudo chmod u+x {simulator_file_name}
+```
+
+Here is the data provided from the Simulator to the C++ Program.
+
+#### Main car's localization Data (No Noise)
+
+* ["x"] The car's x position in map coordinates
+* ["y"] The car's y position in map coordinates
+* ["s"] The car's s position in frenet coordinates
+* ["d"] The car's d position in frenet coordinates
+* ["yaw"] The car's yaw angle in the map
+* ["speed"] The car's speed in MPH
+
+#### Previous path data given to the Planner
+
+Note that it returns the previous list but with processed points removed, whch can be a nice tool to show how far along
+the path has processed since last time. 
+
+* ["previous_path_x"] The previous list of x points previously given to the simulator
+* ["previous_path_y"] The previous list of y points previously given to the simulator
+
+#### Previous path's end s and d values 
+
+* ["end_path_s"] The previous list's last point's frenet s value
+* ["end_path_d"] The previous list's last point's frenet d value
+
+#### Sensor Fusion Data, a list of all other car's attributes on the same side of the road. (No Noise)
+
+A 2d vector of cars, ["sensor_fusion"] includes:
+* [car's unique ID]
+* [car's x position in map coordinates, car's y position in map coordinates]
+* [car's x velocity in m/s, car's y velocity in m/s]
+* [car's s position in frenet coordinates, car's d position in frenet coordinates]
+
+
+## Map
+
+#### The map of the highway is in data/highway_map.txt
+The highway's waypoints loop around so the frenet s value, distance along the road, goes from 0 to 6945.554.
+Each waypoint in the list contains  [x,y,s,dx,dy] values. x and y are the waypoint's map coordinate position, the s value is the distance along the road to get to that waypoint in meters, the dx and dy values define the unit normal vector pointing outward of the highway loop.
+
+
+---
+## Build
+
+1. Clone this repo.
+2. Make a build directory: `mkdir build && cd build`
+3. Compile: `cmake .. && make`
+4. Run it: `./path_planning`
+
 
 ## Dependencies
 
