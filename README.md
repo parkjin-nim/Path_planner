@@ -8,7 +8,6 @@
 [image3]: ./data/speed.png "speed penaly"
 [image4]: ./data/lane_change.png "lane change penaly"
 [image5]: ./data/compute_time.png "timing schedule"
----
 
 ![alt text][image1]
 
