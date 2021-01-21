@@ -132,7 +132,7 @@ On every websocket message arrival in the C++ program, there are the path points
         :
 ```
 
-#### Deccelerations
+#### Sharp decceleration
 
 (x,y) points are in meters and the spacing inbetween determines the speed of the car. The vector from a point to the next dictates the angle of the car. Acceleration both in the tangential and normal directions is measured along with the jerk, the rate of change of total acceleration. (x,y) points in a path should not have a total acceleration that goes over 10 m/s^2. The jerk also should not go over 50 m/s^3. Note that these requirements might change for BETA version simulator. For instance, jerk is measured over a .02 second interval and is the average total acceleration over 1 second.
 
